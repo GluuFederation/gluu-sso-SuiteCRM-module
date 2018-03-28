@@ -10,6 +10,30 @@ function select_query($db, $action){
 	$result = $db->fetchRow($db->query("SELECT `gluu_value` FROM `gluu_table` WHERE `gluu_action` LIKE '$action'"))["gluu_value"];
 	return $result;
 }
+function get_protection_access_token(){
+    require_once("modules/Gluussos/oxd-rp/Get_client_access_token.php");
+    $db = DBManagerFactory::getInstance();
+    $gluu_config =   json_decode(select_query($db, "gluu_config"),true);
+    $gluu_provider = select_query($db, 'gluu_provider');
+    if($gluu_config["has_registration_endpoint"] != 1 || $gluu_config["has_registration_endpoint"] != true){
+        return null;
+    }
+    $get_client_access_token = new Get_client_access_token();
+    $get_client_access_token->setRequest_client_id($gluu_config['gluu_client_id']);
+    $get_client_access_token->setRequest_client_secret($gluu_config['gluu_client_secret']);
+    $get_client_access_token->setRequestOpHost($gluu_provider);
+
+    if($gluu_config['oxd_request_pattern'] == 2){
+        $status = $get_client_access_token->request(trim($gluu_config['gluu_oxd_host'],"/")."/get-client-token");
+    } else {
+        $status = $get_client_access_token->request();
+    }
+    if($status == false){
+        return false;
+    }
+
+    return $get_client_access_token->getResponse_access_token();
+}
 if(isset($_SESSION['session_in_op'])){
 	if(time()<(int)$_SESSION['session_in_op']) {
 		require_once("modules/Gluussos/oxd-rp/Logout.php");
@@ -35,7 +59,12 @@ if(isset($_SESSION['session_in_op'])){
 					$logout->setRequestPostLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
 					$logout->setRequestSessionState($_SESSION['session_state']);
 					$logout->setRequestState($_SESSION['state']);
-					$logout->request();
+					$logout->setRequest_protection_access_token(get_protection_access_token());
+                                        if($gluu_config["oxd_request_pattern"] == 2){
+                                            $logout->request(trim($gluu_config["gluu_oxd_host"],"/")."/get-logout-uri");
+                                        } else {
+                                            $logout->request();
+                                        }
 					unset($_SESSION['user_oxd_access_token']);
 					unset($_SESSION['user_oxd_id_token']);
 					unset($_SESSION['session_state']);

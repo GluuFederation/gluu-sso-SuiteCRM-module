@@ -8,7 +8,7 @@ if(!defined('sugarEntry') || !sugarEntry) die('Not A Valid Entry Point');
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.0.1
+	 * @version   3.1.1
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
@@ -43,6 +43,7 @@ if(!defined('sugarEntry') || !sugarEntry) die('Not A Valid Entry Point');
 	 */
 
 require_once("modules/Gluussos/oxd-rp/Register_site.php");
+require_once("modules/Gluussos/oxd-rp/Setup_client.php");
 require_once("modules/Gluussos/oxd-rp/Update_site_registration.php");
 ob_start();
 
@@ -52,6 +53,9 @@ $app->startSession();
 function gluu_is_port_working(){
     $db = DBManagerFactory::getInstance();
     $config_option = json_decode(select_query($db, 'gluu_config'),true);
+    if($config_option["oxd_request_pattern"] == 2){
+        return true;
+    }
     $connection = @fsockopen('127.0.0.1', $config_option['gluu_oxd_port']);
     if (is_resource($connection))
     {
@@ -63,6 +67,32 @@ function gluu_is_port_working(){
         return false;
     }
 }
+
+function get_protection_access_token(){
+    require_once("modules/Gluussos/oxd-rp/Get_client_access_token.php");
+    $db = DBManagerFactory::getInstance();
+    $gluu_config =   json_decode(select_query($db, "gluu_config"),true);
+    $gluu_provider = select_query($db, 'gluu_provider');
+    if($gluu_config["has_registration_endpoint"] != 1 || $gluu_config["has_registration_endpoint"] != true){
+        return null;
+    }
+    $get_client_access_token = new Get_client_access_token();
+    $get_client_access_token->setRequest_client_id($gluu_config['gluu_client_id']);
+    $get_client_access_token->setRequest_client_secret($gluu_config['gluu_client_secret']);
+    $get_client_access_token->setRequestOpHost($gluu_provider);
+
+    if($gluu_config['oxd_request_pattern'] == 2){
+        $status = $get_client_access_token->request(trim($gluu_config['gluu_oxd_host'],"/")."/get-client-token");
+    } else {
+        $status = $get_client_access_token->request();
+    }
+    if($status == false){
+        return false;
+    }
+
+    return $get_client_access_token->getResponse_access_token();
+}
+
 function getBaseUrl()
 {
     $currentPath = $_SERVER['PHP_SELF'];
@@ -198,6 +228,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                 $_SESSION['message_success'] = "Please enter your client_id and client_secret.";
                 $gluu_config = json_encode(array(
                     "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+                    "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+                    "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+                    "has_registration_endpoint" => false,
                     "admin_email" => $GLOBALS['current_user']->email1,
                     "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
                     "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -216,6 +249,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                     isset($_POST['gluu_client_secret']) and !empty($_POST['gluu_client_secret'])){
                     $gluu_config = json_encode(array(
                         "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+                        "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+                        "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+                        "has_registration_endpoint" => false,
                         "admin_email" => $GLOBALS['current_user']->email1,
                         "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
                         "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -235,8 +271,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                         SugarApplication::redirect('index.php?module=Gluussos&action=general');
                         return;
                     }
-                    $register_site = new Register_site();
+                    $register_site = new Setup_client();
                     $register_site->setRequestOpHost($gluu_provider);
+                    $register_site->setRequest_client_name(getBaseUrl());
                     $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
                     $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
                     $register_site->setRequestContacts([$gluu_config['admin_email']]);
@@ -260,7 +297,11 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                     }
                     $register_site->setRequestClientId($gluu_config['gluu_client_id']);
                     $register_site->setRequestClientSecret($gluu_config['gluu_client_secret']);
-                    $status = $register_site->request();
+                    if($gluu_config["oxd_request_pattern"] == 2){
+                        $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+                    } else {
+                        $status = $register_site->request();
+                    }
                     if ($status['message'] == 'invalid_op_host') {
                         $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
                         SugarApplication::redirect('index.php?module=Gluussos&action=general');
@@ -280,6 +321,10 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                     //var_dump($register_site->getResponseObject());exit;
                     if ($gluu_oxd_id) {
                         $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+                        $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                        $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                        $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                        $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);
                         $gluu_provider = $register_site->getResponseOpHost();
                         $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
                         $_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
@@ -301,6 +346,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
 
                 $gluu_config = json_encode(array(
                     "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+                    "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+                    "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+                    "has_registration_endpoint" => true,
                     "admin_email" => $GLOBALS['current_user']->email1,
                     "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
                     "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -330,8 +378,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                     SugarApplication::redirect('index.php?module=Gluussos&action=general');
                     return;
                 }
-                $register_site = new Register_site();
+                $register_site = new Setup_client();
                 $register_site->setRequestOpHost($gluu_provider);
+                $register_site->setRequest_client_name(getBaseUrl());
                 $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
                 $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
                 $register_site->setRequestContacts([$gluu_config['admin_email']]);
@@ -353,7 +402,11 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                 else{
                     $register_site->setRequestScope($gluu_config['config_scopes']);
                 }
-                $status = $register_site->request();
+                if($gluu_config["oxd_request_pattern"] == 2){
+                    $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+                } else {
+                    $status = $register_site->request();
+                }
                 //var_dump($status);exit;
                 if ($status['message'] == 'invalid_op_host') {
                     $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
@@ -373,6 +426,10 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                 $gluu_oxd_id = $register_site->getResponseOxdId();
                 if ($gluu_oxd_id) {
                     $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+                    $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                    $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                    $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                    $gluu_config = json_decode(update_query($db, 'gluu_config',json_encode($gluu_config)),true);
                     $gluu_provider = $register_site->getResponseOpHost();
                     $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
                     $_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
@@ -396,6 +453,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
     else{
         $gluu_config = json_encode(array(
             "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+            "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+            "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+            "has_registration_endpoint" => true,
             "admin_email" => $GLOBALS['current_user']->email1,
             "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
             "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -415,14 +475,19 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
             SugarApplication::redirect('index.php?module=Gluussos&action=general');
             return;
         }
-        $register_site = new Register_site();
+        $register_site = new Setup_client();
         $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
         $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
         $register_site->setRequestContacts([$gluu_config['admin_email']]);
+        $register_site->setRequest_client_name(getBaseUrl());
         $register_site->setRequestAcrValues($gluu_config['config_acr']);
         $register_site->setRequestScope($gluu_config['config_scopes']);
         $register_site->setRequestClientLogoutUri($gluu_config['post_logout_redirect_uri']);
-        $status = $register_site->request();
+        if($gluu_config["oxd_request_pattern"] == 2){
+            $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+        } else {
+            $status = $register_site->request();
+        }
 
         if ($status['message'] == 'invalid_op_host') {
             $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
@@ -442,6 +507,10 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
         $gluu_oxd_id = $register_site->getResponseOxdId();
         if ($gluu_oxd_id) {
             $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+            $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+            $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+            $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+            $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);
             $gluu_provider = $register_site->getResponseOpHost();
             $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
             $arrContextOptions=array(
@@ -457,8 +526,9 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
                 return;
             }
-            $register_site = new Register_site();
+            $register_site = new Setup_client();
             $register_site->setRequestOpHost($gluu_provider);
+            $register_site->setRequest_client_name(getBaseUrl());
             $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
             $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
             $register_site->setRequestContacts([$gluu_config['admin_email']]);
@@ -481,7 +551,11 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
             else{
                 $register_site->setRequestScope($gluu_config['config_scopes']);
             }
-            $status = $register_site->request();
+            if($gluu_config["oxd_request_pattern"] == 2){
+                $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+            } else {
+                $status = $register_site->request();
+            }
             if ($status['message'] == 'invalid_op_host') {
                 $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
@@ -500,7 +574,11 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
             $gluu_oxd_id = $register_site->getResponseOxdId();
             if ($gluu_oxd_id) {
                 $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
-                $_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
+ 		$gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);               
+		$_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
                 return;
             }
@@ -591,6 +669,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
     $gluu_oxd_id = update_query($db, 'gluu_oxd_id', '');
     $gluu_config = array(
         "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+        "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+        "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+        "has_registration_endpoint" => true,
         "admin_email" => $GLOBALS['current_user']->email1,
         "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
         "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -622,6 +703,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                     isset($_POST['gluu_client_secret']) and !empty($_POST['gluu_client_secret']) and !$obj->registration_endpoint){
                     $gluu_config = array(
                         "gluu_oxd_port" => $_POST['gluu_oxd_port'],
+                        "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+                        "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+                        "has_registration_endpoint" => false,
                         "admin_email" => $GLOBALS['current_user']->email1,
                         "gluu_client_id" => $_POST['gluu_client_id'],
                         "gluu_client_secret" => $_POST['gluu_client_secret'],
@@ -641,8 +725,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                         SugarApplication::redirect('index.php?module=Gluussos&action=general');
                         return;
                     }
-                    $register_site = new Register_site();
+                    $register_site = new Setup_client();
                     $register_site->setRequestOpHost($gluu_provider);
+                    $register_site->setRequest_client_name(getBaseUrl());
                     $register_site->setRequestAcrValues($gluu_config['config_acr']);
                     $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
                     $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
@@ -661,7 +746,11 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                     }
                     $register_site->setRequestClientId($_POST['gluu_client_id']);
                     $register_site->setRequestClientSecret($_POST['gluu_client_secret']);
-                    $status = $register_site->request();
+                    if($gluu_config["oxd_request_pattern"] == 2){
+                        $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+                    } else {
+                        $status = $register_site->request();
+                    }
                     if ($status['message'] == 'invalid_op_host') {
                         $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
                         SugarApplication::redirect('index.php?module=Gluussos&action=generalEdit');
@@ -680,6 +769,10 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                     $gluu_oxd_id = $register_site->getResponseOxdId();
                     if ($gluu_oxd_id) {
                         $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+                        $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                        $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                        $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                        $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);
                         $gluu_provider = $register_site->getResponseOpHost();
                         $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
                         $_SESSION['message_success'] = 'Your settings are saved successfully.';
@@ -700,6 +793,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
             else{
                 $gluu_config = array(
                     "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+                    "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+                    "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+                    "has_registration_endpoint" => true,
                     "admin_email" => $GLOBALS['current_user']->email1,
                     "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
                     "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -719,8 +815,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                     SugarApplication::redirect('index.php?module=Gluussos&action=general');
                     return;
                 }
-                $register_site = new Register_site();
+                $register_site = new Setup_client();
                 $register_site->setRequestOpHost($gluu_provider);
+                $register_site->setRequest_client_name(getBaseUrl());
                 $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
                 $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
                 $register_site->setRequestContacts([$gluu_config['admin_email']]);
@@ -742,7 +839,11 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                 else{
                     $register_site->setRequestScope($gluu_config['config_scopes']);
                 }
-                $status = $register_site->request();
+                if($gluu_config["oxd_request_pattern"] == 2){
+                    $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+                } else {
+                    $status = $register_site->request();
+                }
                 //var_dump($status);exit;
                 if ($status['message'] == 'invalid_op_host') {
                     $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
@@ -762,6 +863,10 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                 $gluu_oxd_id = $register_site->getResponseOxdId();
                 if ($gluu_oxd_id) {
                     $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+                    $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                    $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                    $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                    $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);
                     $gluu_provider = $register_site->getResponseOpHost();
                     $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
                     $_SESSION['message_success'] = 'Your settings are saved successfully.';
@@ -784,6 +889,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
     else{
         $gluu_config = array(
             "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
+            "gluu_oxd_host" => $_POST['gluu_oxd_host'],
+            "oxd_request_pattern" => $_POST['oxd_request_pattern'],
+            "has_registration_endpoint" => true,
             "admin_email" => $GLOBALS['current_user']->email1,
             "authorization_redirect_uri" => $base_url.'gluu.php?gluu_login=Gluussos',
             "post_logout_redirect_uri" => $base_url.'gluu_logout.php?gluu_logout=Gluussos',
@@ -803,14 +911,19 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
             SugarApplication::redirect('index.php?module=Gluussos&action=general');
             return;
         }
-        $register_site = new Register_site();
+        $register_site = new Setup_client();
         $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
         $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
+        $register_site->setRequest_client_name(getBaseUrl());
         $register_site->setRequestContacts([$gluu_config['admin_email']]);
         $register_site->setRequestAcrValues($gluu_config['config_acr']);
         $register_site->setRequestScope($gluu_config['config_scopes']);
         $register_site->setRequestClientLogoutUri($gluu_config['post_logout_redirect_uri']);
-        $status = $register_site->request();
+        if($gluu_config["oxd_request_pattern"] == 2){
+            $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+        } else {
+            $status = $register_site->request();
+        }
 
         if ($status['message'] == 'invalid_op_host') {
             $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
@@ -830,6 +943,10 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
         $gluu_oxd_id = $register_site->getResponseOxdId();
         if ($gluu_oxd_id) {
             $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
+            $gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+            $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+            $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+            $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);
             $gluu_provider = $register_site->getResponseOpHost();
             $gluu_provider = update_query($db, 'gluu_provider', $gluu_provider);
             $arrContextOptions=array(
@@ -845,8 +962,9 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
                 return;
             }
-            $register_site = new Register_site();
+            $register_site = new Setup_client();
             $register_site->setRequestOpHost($gluu_provider);
+            $register_site->setRequest_client_name(getBaseUrl());
             $register_site->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);
             $register_site->setRequestLogoutRedirectUri($gluu_config['post_logout_redirect_uri']);
             $register_site->setRequestContacts([$gluu_config['admin_email']]);
@@ -869,7 +987,11 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
             else{
                 $register_site->setRequestScope($gluu_config['config_scopes']);
             }
-            $status = $register_site->request();
+            if($gluu_config["oxd_request_pattern"] == 2){
+                $status = $register_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/setup-client");
+            } else {
+                $status = $register_site->request();
+            }
             if ($status['message'] == 'invalid_op_host') {
                 $_SESSION['message_error'] = 'ERROR: OpenID Provider host is required if you don\'t provide it in oxd-default-site-config.json';
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
@@ -888,7 +1010,11 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
             $gluu_oxd_id = $register_site->getResponseOxdId();
             if ($gluu_oxd_id) {
                 $gluu_oxd_id = update_query($db, 'gluu_oxd_id', $gluu_oxd_id);
-                $_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
+		$gluu_config = json_decode(select_query($db, 'gluu_config'),true);
+                $gluu_config['gluu_client_id'] = $register_site->getResponse_client_id();
+                $gluu_config['gluu_client_secret'] = $register_site->getResponse_client_secret();
+                $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($gluu_config)),true);                
+		$_SESSION['message_success'] = 'Your settings are saved successfully.<br/>Please add the following lines to your config_override.php file <br/><pre>$sugar_config[\'http_referer\'][\'actions\'] =array( \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'Wizard\', \'index\', \'ListView\', \'DetailView\', \'EditView\', \'oauth\', \'authorize\', \'Authenticate\', \'Login\', \'SupportPortal\', \'SetTimezone\' );</pre><br/><pre>$sugar_config[\'http_referer\'][\'list\'][] = '.remove_http($_POST['gluu_provider']).';</pre>';
                 SugarApplication::redirect('index.php?module=Gluussos&action=general');
                 return;
             }
@@ -968,7 +1094,13 @@ else if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'open
     $update_site_registration->setRequestContacts([$gluu_config['admin_email']]);
     $update_site_registration->setRequestClientLogoutUri($gluu_config['post_logout_redirect_uri']);
     $update_site_registration->setRequestScope($gluu_config['config_scopes']);
+    $update_site_registration->setRequest_protection_access_token(get_protection_access_token());
     $status = $update_site_registration->request();
+    if($gluu_config["oxd_request_pattern"] == 2){
+        $status = $update_site_registration->request(trim($gluu_config["gluu_oxd_host"],"/")."/update-site");
+    } else {
+        $status = $update_site_registration->request();
+    }
     $new_oxd_id = $update_site_registration->getResponseOxdId();
     if($new_oxd_id){
         $get_scopes = update_query($db, 'gluu_oxd_id', $new_oxd_id);

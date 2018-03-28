@@ -7,7 +7,7 @@
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.0.1
+	 * @version   3.1.1
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
@@ -75,6 +75,7 @@
     $gluu_custom_logout    = select_query($db, 'gluu_custom_logout');
     $gluu_new_roles              = json_decode(select_query($db, 'gluu_new_role'));
     $gluu_users_can_register    = select_query($db, 'gluu_users_can_register');
+    $oxd_request_pattern = isset($gluu_config["oxd_request_pattern"])?$gluu_config["oxd_request_pattern"]:null;
     function gluu_is_oxd_registered(){
         $db = DBManagerFactory::getInstance();
         if(select_query($db, 'gluu_oxd_id')){
@@ -95,7 +96,25 @@
 <script type="application/javascript">
     jQuery(document ).ready(function() {
         jQuery(document).ready(function() {
-
+            
+            <?php if($oxd_request_pattern == 1 || is_null($oxd_request_pattern)) { ?>
+                jQuery(".port").show();
+                jQuery(".host").hide();
+            <?php } else if($oxd_request_pattern == 2) { ?>
+                jQuery(".host").show();
+                jQuery(".port").hide();
+            <?php } ?>    
+                
+            jQuery("input[name='oxd_request_pattern']").change(function(){
+                if(jQuery(this).val() == 1){
+                    jQuery(".port").show();
+                    jQuery(".host").hide();
+                }else{
+                    jQuery(".host").show();
+                    jQuery(".port").hide();
+                }
+            });
+            
             jQuery('[data-toggle="tooltip"]').tooltip();
             jQuery('#p_role').on('click', 'a.remrole', function() {
                 jQuery(this).parents('.role_p').remove();
@@ -229,7 +248,7 @@
             <li id="social-sharing-setup"><a href="index.php?module=Gluussos&action=openidconfig">OpenID Connect Configuration</a></li>
             <li id=""><a data-method="#configopenid" href="https://gluu.org/docs/oxd/3.0.1/plugin/suitecrm/" target="_blank">Documentation</a></li>
         </ul>
-        <div class="container-page">
+        <div class="container-page" style="background-color: #e5fff3;">
             <!-- General edit tab without client_id and client_secret -->
             <div style="padding: 20px !important;" id="accountsetup">
                 <form id="register_GluuOxd" name="f" method="post" action="index.php?module=Gluussos&action=gluuPostData" onsubmit="setFormSubmitting()">
@@ -275,11 +294,41 @@
                                     </tr>
                                 <?php }?>
                                 <tr>
-                                    <td  style="width: 250px"><b><font color="#FF0000">*</font>oxd port:</b></td>
                                     <td>
-                                        <input class="" type="number"  name="gluu_oxd_port" min="0" max="65535"
+                                        <b>
+                                            <font color="#FF0000">*</font>Select oxd server / oxd https extension 
+                                            <a data-toggle="tooltip" class="tooltipLink" data-original-title="If you are using localhost to connect your open cart site to your oxd server, choose oxd server. If you are connecting via https, choose oxd https extension.">
+                                                <span class="glyphicon glyphicon-info-sign"></span>
+                                            </a>
+                                        </b>
+                                    </td>
+                                    <td>
+                                        <div class="row">
+                                            <div class="col-md-12">    
+                                                <div class="radio">
+                                                    <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" <?php if(empty($gluu_config['oxd_request_pattern']) || $gluu_config['oxd_request_pattern'] == 1) { echo "checked"; } ?> value="1">oxd server</label>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-12">
+                                                <div class="radio">
+                                                    <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" <?php if(!empty($gluu_config['oxd_request_pattern']) && $gluu_config['oxd_request_pattern'] == 2) { echo "checked"; }; ?> value="2">oxd https extension</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr class="port">
+                                    <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd port:</b></td>
+                                    <td class="port">
+                                        <input class="" type="text" name="gluu_oxd_port" min="0" max="65535"
                                                value="<?php echo $gluu_config['gluu_oxd_port']; ?>"
                                                style="width:400px;" placeholder="Please enter free port (for example 8099). (Min. number 0, Max. number 65535)."/>
+                                    </td>
+                                </tr>
+                                <tr class="host">
+                                    <td class="host"><b><font color="#FF0000">*</font>oxd https extension host:</b></td>
+                                    <td class="host">
+                                        <input type="text" style="width:400px;" value="<?php echo isset($gluu_config['gluu_oxd_host'])?$gluu_config['gluu_oxd_host']: ''; ?>" name="gluu_oxd_host" placeholder="Please enter oxd https extension host">
                                     </td>
                                 </tr>
                                 <tr>
@@ -366,15 +415,17 @@
                                         </div>
                                     </td>
                                 </tr>
-                                <tr>
-                                    <td  style="width: 250px">
-                                        <input type="submit" name="saveButton" value="Save" style="text-decoration: none;text-align:center; float: right; width: 120px;" class="button button-primary button-large"/>
-                                    </td>
-                                    <td>
-                                        <a class="button button-primary button-large" onclick="edit_cancel_function()" style="background-color:red;text-align:center;float: left; width: 120px;" href="index.php?module=Gluussos&action=general">Cancel</a>
-                                    </td>
-                                </tr>
                             </table>
+                            <div style="border-bottom:2px solid #000;"></div>
+                            <br/><br/>
+                            <div class="row">
+                                <div class="col-md-3 col-md-offset-3 text-right">
+                                    <input type="submit" name="saveButton" value="Save" style="width: 120px;height: 35px;background-color: #337ab7 !important; color:white;    background-image: none;" class="btn btn-primary"/>
+                                </div>
+                                <div class="col-md-3 text-left">
+                                    <a class="btn btn-primary" onclick="edit_cancel_function()" style="width: 120px;height: 35px;background-color: #337ab7 !important; color:white;background-image: none;text-decoration:none !important;" href="index.php?module=Gluussos&action=general">Cancel</a>
+                                </div>
+                            </div>
                         </div>
                     </fieldset>
                 </form>

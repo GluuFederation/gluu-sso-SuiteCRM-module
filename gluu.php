@@ -6,7 +6,7 @@ if(!defined('sugarEntry'))define('sugarEntry', true);
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.1.1
+	 * @version   3.1.2
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
@@ -274,12 +274,14 @@ if( isset( $_REQUEST['gluu_login'] ) and strpos( $_REQUEST['gluu_login'], 'Gluus
         $email_split = explode("@", $reg_email);
         $username = $email_split[0];
     }
-    if(!empty($get_user_info_array->permission[0])){
-        $world = str_replace("[","",$get_user_info_array->permission[0]);
-        $reg_user_permission = str_replace("]","",$world);
-    }elseif(!empty($get_tokens_by_code_array->permission[0])){
-        $world = str_replace("[","",$get_user_info_array->permission[0]);
-        $reg_user_permission = str_replace("]","",$world);
+    if(!empty($get_user_info_array->permission)){
+        $reg_user_permission = implode(",",$get_user_info_array->permission);
+    }elseif(!empty($get_tokens_by_code_array->permission)){
+        $reg_user_permission = implode(",",$get_user_info_array->permission);
+    }elseif(!empty($get_user_info_array->role)){
+        $reg_user_permission = implode(",",$get_user_info_array->role);
+    }elseif(!empty($get_tokens_by_code_array->role)){
+        $reg_user_permission = implode(",",$get_user_info_array->role);
     }
 	
 		$bool = false;

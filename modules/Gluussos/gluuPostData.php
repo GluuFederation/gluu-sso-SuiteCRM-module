@@ -8,7 +8,7 @@ if(!defined('sugarEntry') || !sugarEntry) die('Not A Valid Entry Point');
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.1.1
+	 * @version   3.1.2
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
@@ -44,7 +44,8 @@ if(!defined('sugarEntry') || !sugarEntry) die('Not A Valid Entry Point');
 
 require_once("modules/Gluussos/oxd-rp/Register_site.php");
 require_once("modules/Gluussos/oxd-rp/Setup_client.php");
-require_once("modules/Gluussos/oxd-rp/Update_site_registration.php");
+require_once("modules/Gluussos/oxd-rp/Update_site.php");
+require_once("modules/Gluussos/oxd-rp/Remove_site.php");
 ob_start();
 
 require_once('include/MVC/SugarApplication.php');
@@ -225,7 +226,7 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
         if(!empty($obj->userinfo_endpoint)){
 
             if(empty($obj->registration_endpoint)){
-                $_SESSION['message_success'] = "Please enter your client_id and client_secret.";
+                
                 $gluu_config = json_encode(array(
                     "gluu_oxd_port" =>$_POST['gluu_oxd_port'],
                     "gluu_oxd_host" => $_POST['gluu_oxd_host'],
@@ -239,12 +240,18 @@ if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_r
                     "gluu_client_secret" => "",
                     "config_acr" => []
                 ));
+                $gluu_config = json_decode(update_query($db, 'gluu_config', $gluu_config),true);
                 if($_POST['gluu_users_can_register']==2){
                     $config = json_decode(select_query($db, 'gluu_config'),true);
                     array_push($config['config_scopes'],'permission');
                     $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($config)),true);
                 }
-                $gluu_config = json_decode(update_query($db, 'gluu_config', $gluu_config),true);
+                if($_POST['oxd_request_pattern'] == 2){
+                    $_SESSION['message_error'] = 'ERROR: We do not support https extension with OpenId Connect provider having no registration endpoint.';
+                    SugarApplication::redirect('index.php?module=Gluussos&action=general');
+                    return;
+                }
+                $_SESSION['message_success'] = "Please enter your client_id and client_secret.";
                 if(isset($_POST['gluu_client_id']) and !empty($_POST['gluu_client_id']) and
                     isset($_POST['gluu_client_secret']) and !empty($_POST['gluu_client_secret'])){
                     $gluu_config = json_encode(array(
@@ -715,13 +722,18 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
                         "config_acr" => []
                     );
                     $gluu_config1 = update_query($db, 'gluu_config', json_encode($gluu_config));
+                    if($_POST['oxd_request_pattern'] == 2){
+                        $_SESSION['message_error'] = 'ERROR: We do not support https extension with OpenId Connect provider having no registration endpoint.';
+                        SugarApplication::redirect('index.php?module=Gluussos&action=generalEdit');
+                        return;
+                    }
                     if($_POST['gluu_users_can_register']==2){
                         $config = json_decode(select_query($db, 'gluu_config'),true);
                         array_push($config['config_scopes'],'permission');
                         $gluu_config = json_decode(update_query($db, 'gluu_config', json_encode($config)),true);
                     }
                     if(!gluu_is_port_working()){
-                        $_SESSION['message_error'] = 'Can not connect to the oxd server. Please check the oxd-config.json file to make sure you have entered the correct port and the oxd server is operational.';
+                        $_SESSION['message_error'] = 'ERROR: Can not connect to the oxd server. Please check the oxd-config.json file to make sure you have entered the correct port and the oxd server is operational.';
                         SugarApplication::redirect('index.php?module=Gluussos&action=general');
                         return;
                     }
@@ -1032,6 +1044,18 @@ else if (isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'gene
     }
 }
 else if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'general_oxd_id_reset' )  !== false and !empty($_REQUEST['resetButton'])) {
+    $gluu_config =   json_decode(select_query($db, "gluu_config"),true);
+    $gluu_oxd_id =   select_query($db, "gluu_oxd_id");
+    if($gluu_oxd_id){
+        $remove_site = new Remove_site();
+        $remove_site->setRequestOxdId($gluu_oxd_id);
+        $remove_site->setRequest_protection_access_token(get_protection_access_token());
+        if($gluu_config["oxd_request_pattern"] == 2){
+            $status = $remove_site->request(trim($gluu_config["gluu_oxd_host"],"/")."/remove-site");
+        } else {
+            $status = $remove_site->request();
+        }
+    }
     $db->query("DROP TABLE IF EXISTS `gluu_table`;");
     unset($_SESSION['openid_error']);
     $_SESSION['message_success'] = 'Configurations deleted Successfully.';
@@ -1086,7 +1110,7 @@ else if( isset( $_REQUEST['form_key'] ) and strpos( $_REQUEST['form_key'], 'open
         SugarApplication::redirect('index.php?module=Gluussos&action=general');
         return;
     }
-    $update_site_registration = new Update_site_registration();
+    $update_site_registration = new Update_site();
     $update_site_registration->setRequestOxdId($gluu_oxd_id);
     $update_site_registration->setRequestAcrValues($gluu_config['acr_values']);
     $update_site_registration->setRequestAuthorizationRedirectUri($gluu_config['authorization_redirect_uri']);

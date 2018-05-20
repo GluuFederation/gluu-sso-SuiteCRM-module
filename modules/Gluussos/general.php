@@ -7,11 +7,11 @@ if(!defined('sugarEntry') || !sugarEntry) die('Not A Valid Entry Point');
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.1.1
+	 * @version   3.1.2
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
-	 * @link      Documentation      : <https://gluu.org/docs/oxd/3.0.1/plugin/suitecrm/>
+	 * @link      Documentation      : <https://gluu.org/docs/oxd/3.1.2/plugin/suitecrm/>
 	 * @director  Mike Schwartz      : <mike@gluu.org>
 	 * @support   Support email      : <support@gluu.org>
 	 * @developer Volodya Karapetyan : <https://github.com/karapetyan88> <mr.karapetyan88@gmail.com>
@@ -133,6 +133,7 @@ $gluu_custom_logout         = select_query($db, 'gluu_custom_logout');
 $gluu_new_roles              = json_decode(select_query($db, 'gluu_new_role'));
 $gluu_users_can_register    = select_query($db, 'gluu_users_can_register');
 $oxd_request_pattern = isset($gluu_config["oxd_request_pattern"])?$gluu_config["oxd_request_pattern"]:null;
+
 function gluu_is_oxd_registered(){
     $db = DBManagerFactory::getInstance();
     if(select_query($db, 'gluu_oxd_id')){
@@ -363,19 +364,19 @@ function gluu_is_oxd_registered(){
                                                 <div class="row">
                                                     <div class="col-md-12">    
                                                         <div class="radio">
-                                                            <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" value="1" checked="">oxd server</label>
+                                                            <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" value="1" <?php if(empty($gluu_config['oxd_request_pattern']) || $gluu_config['oxd_request_pattern'] == 1) { echo "checked"; } ?> >oxd server</label>
                                                         </div>
                                                     </div>
                                                     <div class="col-md-12">
                                                         <div class="radio">
-                                                            <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" value="2">oxd https extension</label>
+                                                            <label><input type="radio" style="margin-top:1px" name="oxd_request_pattern" value="2" <?php if(!empty($gluu_config['oxd_request_pattern']) && $gluu_config['oxd_request_pattern'] == 2) { echo "checked"; } ?> >oxd https extension</label>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </td>
                                         </tr>    
                                         <tr class="port">
-                                            <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd port:</b></td>
+                                            <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd server port:</b></td>
                                             <td class="port">
                                                 <input class="" type="number" name="gluu_oxd_port" min="0" max="65535"
                                                        value="<?php echo $gluu_config['gluu_oxd_port']; ?>"
@@ -475,7 +476,7 @@ function gluu_is_oxd_registered(){
                                     <?php if(!empty($_SESSION['openid_error'])){?>
                                         <div class="row">
                                             <div class="col-md-3 col-md-offset-3">
-                                                <div><input class="btn btn-primary" type="submit" name="register" value="Register" style="width: 120px;"/></div>
+                                                <div><input class="btn btn-primary" type="submit" name="register" value="Register" style="width: 120px;background-image:none;height: 35px;background-color: #4e8ccf;color:white!important;text-decoration:none !important;"/></div>
                                             </div>
                                             <div class="col-md-3">
                                                 <a class="btn btn-primary" onclick="return confirm('Are you sure that you want to remove this OpenID Connect provider? Users will no longer be able to authenticate against this OP.')" style="width: 120px;color:white!important;text-decoration:none !important;" href="index.php?module=Gluussos&action=gluuPostData&submit=delete">Delete</a>
@@ -591,7 +592,7 @@ function gluu_is_oxd_registered(){
                                         </td>
                                     </tr>
                                     <tr class="port">
-                                        <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd port:</b></td>
+                                        <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd server port:</b></td>
                                         <td class="port">
                                             <input class="" type="text" disabled name="gluu_oxd_port" min="0" max="65535"
                                                    value="<?php echo $gluu_config['gluu_oxd_port']; ?>"

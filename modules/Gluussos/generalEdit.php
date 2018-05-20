@@ -7,7 +7,7 @@
 	 *
 	 * @package	  OpenID Connect SSO Module by Gluu
 	 * @category  Module for SuiteCrm
-	 * @version   3.1.1
+	 * @version   3.1.2
 	 *
 	 * @author    Gluu Inc.          : <https://gluu.org>
 	 * @link      Oxd site           : <https://oxd.gluu.org>
@@ -318,7 +318,7 @@
                                     </td>
                                 </tr>
                                 <tr class="port">
-                                    <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd port:</b></td>
+                                    <td class="port" style=" width: 40%"><b><font color="#FF0000">*</font>oxd server port:</b></td>
                                     <td class="port">
                                         <input class="" type="text" name="gluu_oxd_port" min="0" max="65535"
                                                value="<?php echo $gluu_config['gluu_oxd_port']; ?>"
